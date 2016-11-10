@@ -1,0 +1,9 @@
+{application, eucpparse,
+ [
+  {description, "An Erlang UCP message parser and builder library"},
+  {vsn, "0.0.1"},
+  {modules, [eucpparse,eucpparse_lex]},
+  {registered, []},
+  {applications, [kernel, stdlib]},
+  {env, []}
+ ]}.
