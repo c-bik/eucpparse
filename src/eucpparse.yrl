@@ -10,10 +10,11 @@ Nonterminals
  ucps
  ucp
  pdu
- header
+ header_data
  op
- ot
- data
+ o60
+ r60
+ opt
  checksum
 .
 
@@ -21,10 +22,10 @@ Terminals
  STX
  ETX
  DAT
+ O60
+ R60
  '/'
- 'O'
- 'R'
- ','
+% ','
 .
 
 Rootsymbol ucps.
@@ -36,20 +37,28 @@ ucps -> ucp ucps   : ['$1'|'$2'].
 
 ucp -> STX pdu ETX : '$2'.
 
-pdu -> header '/' data '/' checksum : #{header => '$1', data => '$3',
-                                        checksum => '$5'}.
+pdu -> header_data '/' checksum : ('$1')#{checksum => '$3'}.
 
-header -> DAT '/' DAT '/' op  '/' ot : #{trn => unwrap('$1'),
-                                         len => unwrap('$3'),
-                                         op => '$5', ot => '$7'}.
+header_data -> DAT '/' DAT '/' op : ('$5')#{trn => uw('$1'),
+                                            len => uw('$3')}.
 
-op -> 'O'   :   'OPERATION'.
-op -> 'R'   :   'RESULT'.
+op -> O60 '/' o60 : ('$3')#{op => 'O', ot => 60}.
+op -> R60 '/' r60 : ('$3')#{op => 'R', ot => 60}.
 
-ot -> DAT   : unwrap('$1').
+%      1       3       5       7       9       11      13      15      17      19      21      23
+o60 -> DAT '/' opt '/' opt '/' DAT '/' DAT '/' opt '/' DAT '/' opt '/' opt '/' opt '/' opt '/' opt
+       : #{oadc => uw('$1'), oton => '$3', onpi => '$5', stype => uw('$7'),
+           pwd => str(uw('$9')), npwd => '$11', vers => uw('$13'),
+           ladc => '$15', lton => '$17', lnpi => '$19', opid => '$21',
+           res1 => '$23'}.
 
-data -> DAT : unwrap('$1').
-checksum -> DAT : unwrap('$1').
+r60 -> DAT '/' opt          : #{ack => true, sm => '$3'}.
+r60 -> DAT '/' DAT '/' opt  : #{ack => false, ec => uw('$3'), sm => '$5'}.
+
+opt -> '$empty' : none.
+opt -> DAT      : uw('$1').
+
+checksum -> DAT : uw('$1').
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
@@ -61,7 +70,13 @@ Erlang code.
 %%-----------------------------------------------------------------------------
 %%                          parser helper functions
 %%-----------------------------------------------------------------------------
-unwrap({_,_,X}) -> X.
+uw({_,_,X}) -> X.
+
+str([]) -> [];
+str([A,B|R]) -> [list_to_integer([A,B],16) | str(R)].
+
+% ira([]) -> [];
+% ira([C|R]) -> [integer_to_list(C,16) | ira(R)].
 %%-----------------------------------------------------------------------------
 
 
