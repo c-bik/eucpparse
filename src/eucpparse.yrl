@@ -48,7 +48,7 @@ op -> R60 '/' r60 : ('$3')#{op => 'R', ot => 60}.
 %      1       3       5       7       9       11      13      15      17      19      21      23
 o60 -> DAT '/' opt '/' opt '/' DAT '/' DAT '/' opt '/' DAT '/' opt '/' opt '/' opt '/' opt '/' opt
        : #{oadc => uw('$1'), oton => '$3', onpi => '$5', stype => uw('$7'),
-           pwd => str(uw('$9')), npwd => '$11', vers => uw('$13'),
+           pwd => str(uw('$9')), npwd => str('$11'), vers => uw('$13'),
            ladc => '$15', lton => '$17', lnpi => '$19', opid => '$21',
            res1 => '$23'}.
 
@@ -72,6 +72,7 @@ Erlang code.
 %%-----------------------------------------------------------------------------
 uw({_,_,X}) -> X.
 
+str(none) -> none;
 str([]) -> [];
 str([A,B|R]) -> [list_to_integer([A,B],16) | str(R)].
 
@@ -96,7 +97,7 @@ unpack(Ucp) ->
 parse_i(<<2, _/binary>> = Ucp) ->
     parse_i(binary_to_list(Ucp));
 parse_i([]) -> error(badarg);
-parse_i(Ucp) when is_list(Ucp), length(Ucp) > 0 ->
+parse_i([2|_] = Ucp) when is_list(Ucp) ->
     case lists:last(Ucp) of
         3 ->
             case eucpparse_lex:string(Ucp) of
@@ -105,9 +106,11 @@ parse_i(Ucp) when is_list(Ucp), length(Ucp) > 0 ->
                         {ok, PTree} -> {ok, {PTree, Toks}};
                         {error, {Line, Module, Message}} ->
                             {parse_error,
-                             {Line, lists:flatten(Module:format_error(Message)), Toks}}
+                             {Line, lists:flatten(
+                                      Module:format_error(Message)), Toks}}
                     end;
-                LexErrorInfo -> {lex_error, eucpparse_lex:format_error(LexErrorInfo)}
+                LexErrorInfo ->
+                    {lex_error, eucpparse_lex:format_error(LexErrorInfo)}
             end;
         _ -> error(badarg)
     end;
@@ -122,67 +125,49 @@ parse_i(_) -> error(badarg).
 %%                               EUnit test
 %%-----------------------------------------------------------------------------
 
-parse_test() ->
+parse_test_() ->
     ?debugMsg("==========================================="),
-    ?debugMsg("|    J S O N   P A T H   P A R S I N G    |"),
+    ?debugMsg("|          U C P   P A R S I N G          |"),
     ?debugMsg("==========================================="),
-    catch application:start(?MODULE),
-    Cwd = filename:absname(""),
-    {ShowParseTree, Tests} =
-        case file:consult(filename:join([Cwd, "..", "test", "test.txt"])) of
-            {ok, [show_parse_tree, T]}  -> {true, T};
-            {ok, [_, T]}                -> {false, T};
-            {ok, [T]}                   -> {false, T};
-            {error, Error}              -> ?assertEqual(ok, Error)
-        end,
-    ?debugFmt("Test result ~p parse tree"
-              , [if ShowParseTree -> with; true -> without end]),
-    test_parse(1, ShowParseTree, Tests).
-
-test_parse(_, _, []) -> ok;
-test_parse(N, ShowParseTree, [{Test,Target}|Tests]) when is_binary(Test) ->
-    test_parse(N, ShowParseTree, [{binary_to_list(Test),Target}|Tests]);
-test_parse(N, ShowParseTree, [{Test,Target}|Tests]) ->
-    ?debugFmt("[~p]----------------------------------------",[N]),
-    ?debugFmt("~ts", [Test]),
-    {Tokens,EndLine} = case t_tokenize(Test) of
-        {ok,T,E} -> {T,E};
-        {error, Error} ->
-            ?debugFmt("Tokenize Error ~p", [Error]),
-            ?assertEqual(ok, tokenize_error)
-    end,
-    PTree = case t_parse(Tokens) of
-        {ok, PT} -> PT;
-        {error, {Line, PError}} ->
-            ?debugFmt("Parse Error at ~p : ~s", [Line, PError]),
-            ?debugFmt("Tokens ~p:~p", [EndLine,Tokens]),
-            ?assertEqual(ok, parsing_error)
-    end,
-    ?assertEqual(Target, PTree),
-    if ShowParseTree -> ?debugFmt("~p", [PTree]); true -> ok end,
-    FoldTest = case jpparse:string(PTree) of
-        {ok, Ft} -> Ft;
-        {error, FError} ->
-            ?debugFmt("Folding Error : ~p", [FError]),
-            ?debugFmt("ParseTree :~p", [PTree]),
-            ?assertEqual(ok, fold_error)
-    end,
-    ?assertEqual(re:replace(Test, "[[:space:]]*", "", [global,{return,list}]),
-                 binary_to_list(FoldTest)),
-    test_parse(N+1, ShowParseTree, Tests).
-
-t_tokenize(Test) ->
-    case jsonpath_lex:string(Test) of
-        {ok,Tokens,EndLine} -> {ok,Tokens,EndLine};
-        ErrorInfo -> {error, jsonpath_lex:format_error(ErrorInfo)}
-    end.
-
-t_parse(Tokens) ->
-    case jpparse:parse(Tokens) of
-        {ok, PTree} -> {ok, PTree};
-        {error, {Line, Module, Message}} ->
-            {error, {Line, lists:flatten(Module:format_error(Message))}}
-    end.
+    {inparallel,
+     [{U, fun() ->
+                  U0 = lists:flatten([2,U,3]),
+                  {ok, Toks, 1} = eucpparse_lex:string(U0),
+                  %?debugFmt("Toks ~p", [Toks]),
+                  {ok,[Pt]} = eucpparse:parse(Toks),
+                  %?debugFmt("Pt ~p", [Pt]),
+                  ?assertEqual(T, Toks),
+                  ?assertEqual(P, Pt)
+          end}
+      || {U,T,P} <-
+         [{"53/00060/O/60/30035/6/5/1/74657374736D63683231//0100//////8A",
+           [{'STX',1}, {'DAT',1,"53"}, {'/',1}, {'DAT',1,"00060"}, {'/',1},
+            {'O60',1}, {'/',1}, {'DAT',1,"30035"}, {'/',1}, {'DAT',1,"6"},
+            {'/',1}, {'DAT',1,"5"}, {'/',1}, {'DAT',1,"1"}, {'/',1},
+            {'DAT',1,"74657374736D63683231"}, {'/',1}, {'/',1},
+            {'DAT',1,"0100"}, {'/',1}, {'/',1}, {'/',1}, {'/',1}, {'/',1},
+            {'/',1}, {'DAT',1,"8A"}, {'ETX',1}],
+           #{checksum => "8A", ladc => none, len => "00060", lnpi => none,
+             lton => none, npwd => none, oadc => "30035", onpi => "5",
+             op => 'O', opid => none, ot => 60, oton => "6",
+             pwd => "testsmch21", res1 => none, stype => "1", trn => "53",
+             vers => "0100"}},
+          {"53/00080/O/60/30035/2/1/2/70617373776F7264/6E657770617373776F7264/"
+           "0100////39//D4",
+           [{'STX',1}, {'DAT',1,"53"}, {'/',1}, {'DAT',1,"00080"}, {'/',1},
+            {'O60',1}, {'/',1}, {'DAT',1,"30035"}, {'/',1}, {'DAT',1,"2"},
+            {'/',1}, {'DAT',1,"1"}, {'/',1}, {'DAT',1,"2"}, {'/',1},
+            {'DAT',1,"70617373776F7264"}, {'/',1},
+            {'DAT',1,"6E657770617373776F7264"}, {'/',1}, {'DAT',1,"0100"},
+            {'/',1}, {'/',1}, {'/',1}, {'/',1}, {'DAT',1,"39"}, {'/',1},
+            {'/',1}, {'DAT',1,"D4"}, {'ETX',1}],
+           #{checksum => "D4", ladc => none, len => "00080", lnpi => none,
+             lton => none, npwd => "newpassword", oadc => "30035", onpi => "1",
+             op => 'O', opid => "39", ot => 60, oton => "2", pwd => "password",
+             res1 => none, stype => "2", trn => "53", vers => "0100"}}
+         ]
+       ]
+    }.
 
 %%-----------------------------------------------------------------------------
 
